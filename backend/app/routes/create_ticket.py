@@ -11,29 +11,31 @@ async def create_ticket(
     prompt: str = Form(...),
     files: Optional[List[UploadFile]] = File(None),
 ):
-    # Step 1: Fetch all projects (paginated — up to 178 at IndiaMART)
+    # Step 1: Fetch projects from API (paginated)
     try:
-        projects = await op.get_projects()
+        api_projects = await op.get_projects()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch projects: {str(e)}")
 
+    # Build combined list (API results + full hardcoded catalog)
+    combined_projects = op.build_combined_project_list(api_projects)
+
     # Step 2: LLM extracts subject, description, project_name, assignee_name, accountable_name
     try:
-        extracted = llm.extract_ticket_creation_data(prompt, projects)
+        extracted = llm.extract_ticket_creation_data(prompt, combined_projects)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LLM extraction failed: {str(e)}")
 
-    # Step 3: Resolve project — API results first, then hardcoded IndiaMART fallback
+    # Step 3: Resolve project — combined list (API + catalog), then keyword aliases
     project_name_raw = extracted.get("project_name", "")
-    match = op.find_project_href(project_name_raw, projects)
+    match = op.find_project_href(project_name_raw, api_projects)
     if not match:
-        available_sample = [p.get("name") for p in projects[:20]]
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Could not match project '{project_name_raw}' to any OpenProject bucket. "
-                f"Mention the project name explicitly, e.g. 'Android bucket', 'FCP/MDC', 'Search UI'. "
-                f"API returned {len(projects)} projects. Sample: {available_sample}"
+                f"Mention the bucket name explicitly, e.g. 'Android bucket', 'IM-iOS Native', 'FCP/MDC'. "
+                f"API returned {len(api_projects)} projects; {len(combined_projects)} total known."
             ),
         )
     project_href, project_id, project_name = match
@@ -64,7 +66,7 @@ async def create_ticket(
     resolved_priority = extracted.get("priority", "Normal")
     priority_href = op._find_best_match(resolved_priority, priorities)
 
-    # Step 6: Resolve assignee and accountable from project members
+    # Step 6: Load project members and resolve assignee/accountable via LLM
     notes = []
     if extracted.get("extraction_notes"):
         notes.append(extracted["extraction_notes"])
@@ -74,28 +76,41 @@ async def create_ticket(
     assignee_display = None
     accountable_display = None
 
-    assignee_name = extracted.get("assignee_name") or ""
-    accountable_name = extracted.get("accountable_name") or ""
+    assignee_hint = (extracted.get("assignee_name") or "").strip()
+    accountable_hint = (extracted.get("accountable_name") or "").strip()
 
-    if assignee_name or accountable_name:
+    if assignee_hint or accountable_hint:
         try:
             members = await op.get_project_members(project_id)
-            if assignee_name:
-                assignee_href = op._find_user_href(assignee_name, members)
-                if assignee_href:
-                    matched = next((m for m in members if m["_links"]["self"]["href"] == assignee_href), None)
-                    assignee_display = matched["displayName"] if matched else assignee_name
-                else:
-                    notes.append(f"'{assignee_name}' not found in project members — assignee not set.")
-            if accountable_name:
-                accountable_href = op._find_user_href(accountable_name, members)
-                if accountable_href:
-                    matched = next((m for m in members if m["_links"]["self"]["href"] == accountable_href), None)
-                    accountable_display = matched["displayName"] if matched else accountable_name
-                else:
-                    notes.append(f"'{accountable_name}' not found in project members — accountable not set.")
+            member_names = [m["displayName"] for m in members]
+
+            # LLM-powered fuzzy match against actual member list
+            resolved = llm.resolve_members(assignee_hint, accountable_hint, member_names)
+
+            resolved_assignee = resolved.get("assignee")
+            resolved_accountable = resolved.get("accountable")
+
+            if resolved_assignee:
+                assignee_href = op._find_user_href(resolved_assignee, members)
+                assignee_display = resolved_assignee
+                if not assignee_href:
+                    # Fallback: try original hint directly
+                    assignee_href = op._find_user_href(assignee_hint, members)
+                    assignee_display = assignee_hint if assignee_href else None
+            if not assignee_href and assignee_hint:
+                notes.append(f"'{assignee_hint}' not found in {project_name} members — assignee not set.")
+
+            if resolved_accountable:
+                accountable_href = op._find_user_href(resolved_accountable, members)
+                accountable_display = resolved_accountable
+                if not accountable_href:
+                    accountable_href = op._find_user_href(accountable_hint, members)
+                    accountable_display = accountable_hint if accountable_href else None
+            if not accountable_href and accountable_hint:
+                notes.append(f"'{accountable_hint}' not found in {project_name} members — accountable not set.")
+
         except Exception as e:
-            notes.append(f"Could not fetch project members: {str(e)}")
+            notes.append(f"Could not fetch {project_name} members: {str(e)}")
 
     # Step 7: Create the ticket
     try:

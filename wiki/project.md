@@ -75,7 +75,7 @@ Build an **AI-powered Engineering Productivity Copilot** for OpenProject that:
 | Frontend  | React 18 + TypeScript + Vite        | Fast dev, great ecosystem              |
 | Styling   | Tailwind CSS                        | Rapid UI development                   |
 | Backend   | Python FastAPI                      | Best AI/ML ecosystem                   |
-| AI Model  | Groq — Llama 3.3 70B (Free)         | Gemini free tier blocked in India; Groq works |
+| AI Model  | Claude (primary) / Groq fallback    | Claude best for reasoning; Groq free fallback (works from India) |
 | API Auth  | OpenProject API Token (Basic Auth)  | Secure, headless, reliable             |
 
 ---
@@ -254,3 +254,9 @@ Hackathon/
 - [x] Redesign: Removed project/assignee/accountable dropdowns — AI agent now extracts all from natural language prompt
 - [x] Improved: `ticket_creation.txt` prompt with explicit bucket keyword mapping + person name extraction rules
 - [x] Cleaned: `extract_ticket_creation_data()` now passes all 178 projects to LLM (removed 50-item limit)
+- [x] Added: Claude (Anthropic) as primary LLM provider; Groq/Gemini as fallbacks
+- [x] Added: `build_combined_project_list()` — merges API projects + full 178-project catalog for LLM context
+- [x] Added: `resolve_members()` — second LLM call that fuzzy-matches person names against actual project member list
+- [x] Added: `_KNOWN_PROJECTS_CATALOG` — structured catalog with canonical names + keyword aliases (replaces flat dict)
+- [x] Improved: Bug ticket format — Actual Behavior, Expected Behavior, Steps to Reproduce, Test Environment (matches reference ticket)
+- [x] Added: Claude support in requirements.txt (`anthropic==0.40.0`)

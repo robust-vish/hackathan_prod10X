@@ -7,20 +7,40 @@ settings = get_settings()
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
-# Groq model fallback chain — all free, best-to-worst quality
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "llama-3.1-70b-versatile",
     "llama3-70b-8192",
     "mixtral-8x7b-32768",
 ]
-
-# Gemini model fallback chain
 GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-flash-latest"]
+CLAUDE_MODELS = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
 
 
 def _load_prompt(filename: str) -> str:
     return (PROMPTS_DIR / filename).read_text(encoding="utf-8")
+
+
+def _call_claude(prompt: str) -> str:
+    import anthropic
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    last_error = None
+    for model in CLAUDE_MODELS:
+        try:
+            msg = client.messages.create(
+                model=model,
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return msg.content[0].text
+        except Exception as e:
+            err = str(e)
+            if "overloaded" in err.lower() or "529" in err:
+                last_error = e
+                time.sleep(3)
+                continue
+            raise
+    raise last_error or RuntimeError("All Claude models failed")
 
 
 def _call_groq(prompt: str) -> str:
@@ -32,7 +52,7 @@ def _call_groq(prompt: str) -> str:
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
+                temperature=0.2,
                 response_format={"type": "json_object"},
                 max_tokens=4096,
             )
@@ -54,10 +74,7 @@ def _call_groq(prompt: str) -> str:
 def _call_gemini(prompt: str) -> str:
     import google.generativeai as genai
     genai.configure(api_key=settings.gemini_api_key)
-    generation_config = genai.GenerationConfig(
-        temperature=0.3,
-        response_mime_type="application/json",
-    )
+    generation_config = genai.GenerationConfig(temperature=0.2, response_mime_type="application/json")
     primary = settings.gemini_model
     models_to_try = [primary] + [m for m in GEMINI_MODELS if m != primary]
     last_error = None
@@ -76,28 +93,31 @@ def _call_gemini(prompt: str) -> str:
                 continue
             else:
                 raise
-    raise last_error or RuntimeError("All Gemini models failed — Gemini free tier may not be available in your region. Use Groq instead.")
+    raise last_error or RuntimeError("All Gemini models failed")
 
 
 def _call_llm(prompt: str) -> str:
-    # Priority: explicit provider setting → any available key
-    if settings.llm_provider == "groq" and settings.groq_api_key:
+    provider = settings.llm_provider.lower()
+    if provider == "claude" and settings.anthropic_api_key:
+        return _call_claude(prompt)
+    if provider == "groq" and settings.groq_api_key:
         return _call_groq(prompt)
-    if settings.llm_provider == "gemini" and settings.gemini_api_key:
+    if provider == "gemini" and settings.gemini_api_key:
         return _call_gemini(prompt)
-    # Auto-detect: try whichever key is set
+    # Auto-detect: try best available
+    if settings.anthropic_api_key:
+        return _call_claude(prompt)
     if settings.groq_api_key:
         return _call_groq(prompt)
     if settings.gemini_api_key:
         return _call_gemini(prompt)
     raise ValueError(
-        "No LLM API key found. Set GROQ_API_KEY (recommended, free at console.groq.com) "
+        "No LLM API key found. Set ANTHROPIC_API_KEY (recommended), GROQ_API_KEY, "
         "or GEMINI_API_KEY in backend/.env and restart the server."
     )
 
 
 def classify_ticket(ticket_context: str) -> str:
-    """Classify ticket as Bug, Story, Task, or Improvement."""
     prompt = f"""
 You are a ticket classifier. Analyze the following ticket and classify it into exactly one category.
 
@@ -115,7 +135,6 @@ Type must be one of: Bug, Story, Task, Improvement, Feature
 
 
 def analyze_bug_ticket(ticket_context: str) -> dict:
-    """Run full bug analysis using LLM."""
     template = _load_prompt("bug_analysis.txt")
     prompt = template.format(ticket_context=ticket_context)
     result = _call_llm(prompt)
@@ -123,22 +142,20 @@ def analyze_bug_ticket(ticket_context: str) -> dict:
 
 
 def analyze_story_ticket(ticket_context: str) -> dict:
-    """Run full story/A/B analysis using LLM."""
     template = _load_prompt("story_analysis.txt")
     prompt = template.format(ticket_context=ticket_context)
     result = _call_llm(prompt)
     return extract_json(result)
 
 
-def extract_ticket_creation_data(
-    user_prompt: str,
-    projects: list,
-) -> dict:
-    """Extract structured ticket data from natural language prompt."""
+def extract_ticket_creation_data(user_prompt: str, combined_projects: list) -> dict:
+    """
+    Extract structured ticket data from a natural language prompt.
+    combined_projects: merged list of {id, name} dicts (API + hardcoded catalog).
+    """
     projects_list = "\n".join(
-        f"- {p.get('name', '')} (id: {p.get('id', '')})" for p in projects
+        f"- {p['name']} [ID: {p['id']}]" for p in combined_projects
     )
-
     template = _load_prompt("ticket_creation.txt")
     prompt = template.format(
         user_prompt=user_prompt,
@@ -146,3 +163,47 @@ def extract_ticket_creation_data(
     )
     result = _call_llm(prompt)
     return extract_json(result)
+
+
+def resolve_members(
+    assignee_hint: str,
+    accountable_hint: str,
+    member_names: list[str],
+) -> dict:
+    """
+    Use LLM to fuzzy-match extracted person names against the actual project member list.
+    Returns {"assignee": <exact name or null>, "accountable": <exact name or null>}.
+    """
+    if not member_names:
+        return {"assignee": None, "accountable": None}
+    if not assignee_hint and not accountable_hint:
+        return {"assignee": None, "accountable": None}
+
+    members_str = "\n".join(f"- {n}" for n in member_names)
+    hints = []
+    if assignee_hint:
+        hints.append(f'Assignee hint from user: "{assignee_hint}"')
+    if accountable_hint:
+        hints.append(f'Accountable hint from user: "{accountable_hint}"')
+
+    prompt = f"""You are matching person names to actual project members.
+
+Actual project members:
+{members_str}
+
+{chr(10).join(hints)}
+
+Find the single closest match for each role from the member list above.
+Rules:
+- Ignore case differences (e.g. "vishal bairagi" → "Vishal Bairagi")
+- Ignore trailing numbers if the name is otherwise identical (e.g. "soumya sarkar" → "Soumya Sarkar2")
+- If no reasonable match exists, return null for that field
+- Return ONLY raw JSON, no markdown
+
+{{"assignee": "<exact name from list or null>", "accountable": "<exact name from list or null>"}}"""
+
+    try:
+        result = _call_llm(prompt)
+        return extract_json(result)
+    except Exception:
+        return {"assignee": None, "accountable": None}

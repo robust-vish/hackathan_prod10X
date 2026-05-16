@@ -5,44 +5,32 @@ from app.config import get_settings
 
 settings = get_settings()
 
-# Hardcoded fallback: known IndiaMART project IDs (from Excel export, 178 total)
-# Used when the API token only returns a subset of projects.
-_KNOWN_PROJECT_IDS: dict[str, int] = {
-    "android": 3,
-    "ios": 85,
-    "ios native": 85,
-    "im-ios native": 85,
-    "iosnative": 85,
-    "app webview": 476,
-    "webview lead": 476,
-    "webview lead manager": 476,
-    "seller": 408,
-    "trade": 80,
-    "tender": 79,
-    "desktop search": 47,
-    "search ui": 47,
-    "searchui": 47,
-    "search": 124,
-    "photo search": 461,
-    "photo search im": 461,
-    "lead manager": 447,
-    "indiamart lead": 447,
-    "indiamart lead manager": 447,
-    "fcp": 54,
-    "mdc": 54,
-    "fcp/mdc": 54,
-    "fcp mdc": 54,
-    "buyer desktop": 14,
-    "desktop ux": 14,
-    "desktopux": 14,
-    "product detail": 55,
-    "product detail page": 55,
-    "proddetail": 55,
-    "pdp": 55,
-    "desktop lead manager": 70,
-    "desktop lead": 70,
-    "ide": 70,
-}
+# Known IndiaMART projects (from Excel export, 178 total).
+# Format: (project_id, canonical_name, [keyword aliases — lowercase])
+# Primary buckets the user works in most often are listed first.
+_KNOWN_PROJECTS_CATALOG: list[tuple[int, str, list[str]]] = [
+    (3,   "Android",                    ["android", "android bucket", "android project"]),
+    (85,  "IM-iOS Native",              ["ios", "ios native", "iosnative", "im-ios", "im ios", "ios bucket", "iphone", "ipad"]),
+    (476, "APP Webview Lead Manager",   ["app webview", "webview lead", "webview lead manager", "webview"]),
+    (408, "Seller / Trade / Tender",    ["seller", "seller bucket", "seller trade"]),
+    (79,  "Tender",                     ["tender"]),
+    (80,  "Trade",                      ["trade"]),
+    (47,  "Desktop search UI",          ["desktop search", "search ui", "searchui", "desktop search ui"]),
+    (124, "Search",                     ["search"]),
+    (461, "Photo Search IM",            ["photo search", "photo search im", "image search"]),
+    (447, "IndiaMART Lead Manager",     ["lead manager", "indiamart lead", "indiamart lead manager", "lms"]),
+    (54,  "FCP/MDC",                    ["fcp", "mdc", "fcp/mdc", "fcp mdc", "fcp-mdc"]),
+    (14,  "Buyer Desktop UX",           ["buyer desktop", "desktop ux", "desktopux", "buyer ux"]),
+    (55,  "Product Detail Page",        ["product detail", "pdp", "product detail page", "proddetail"]),
+    (70,  "Desktop Lead Manager",       ["desktop lead manager", "desktop lead", "ide"]),
+]
+
+# Flat keyword → id map derived from catalog (for fast lookup)
+_KNOWN_PROJECT_IDS: dict[str, int] = {}
+for _pid, _pname, _kws in _KNOWN_PROJECTS_CATALOG:
+    _KNOWN_PROJECT_IDS[_pname.lower()] = _pid
+    for _kw in _kws:
+        _KNOWN_PROJECT_IDS[_kw] = _pid
 
 
 def _get_headers() -> dict:
@@ -204,40 +192,60 @@ def _find_best_match(name: str, items: list, key: str = "name") -> Optional[str]
     return None
 
 
+def build_combined_project_list(api_projects: list) -> list[dict]:
+    """
+    Merge live API projects with the hardcoded known-projects catalog.
+    Returns a deduplicated list of {id, name} dicts — API names take priority.
+    This is the full list passed to the LLM so it can pick the exact project.
+    """
+    seen: dict[int, str] = {}
+    # API projects first (most up-to-date names)
+    for p in api_projects:
+        pid = p.get("id")
+        if pid:
+            seen[pid] = p.get("name", "")
+    # Add known projects not returned by API
+    for pid, pname, _ in _KNOWN_PROJECTS_CATALOG:
+        if pid not in seen:
+            seen[pid] = pname
+    return [{"id": pid, "name": name} for pid, name in seen.items()]
+
+
 def find_project_href(name: str, api_projects: list) -> Optional[tuple[str, int, str]]:
     """
-    Resolve a project name to (href, id, display_name).
-    Tries API results first, then falls back to the hardcoded IndiaMART project list.
-    Returns None if no match found.
+    Resolve a project name string to (href, project_id, canonical_name).
+    Search order:
+      1. Exact name match in combined list (API + hardcoded catalog)
+      2. Partial name match in combined list
+      3. Keyword alias match in the hardcoded catalog
+    Returns None if nothing found.
     """
     if not name:
         return None
-    name_lower = name.lower().strip()
 
-    # Pass 1: try the live API list (exact then partial)
-    for item in api_projects:
-        if item.get("name", "").lower() == name_lower:
-            href = item.get("_links", {}).get("self", {}).get("href", "")
-            pid = item.get("id") or int(href.split("/")[-1])
-            return href, pid, item.get("name", name)
-    for item in api_projects:
-        item_val = item.get("name", "").lower()
-        if name_lower in item_val or item_val in name_lower:
-            href = item.get("_links", {}).get("self", {}).get("href", "")
-            pid = item.get("id") or int(href.split("/")[-1])
-            return href, pid, item.get("name", name)
+    combined = build_combined_project_list(api_projects)
+    raw = name.lower().strip()
+    # Strip noise words the user or LLM might add
+    clean = raw.replace("bucket", "").replace("project", "").replace("module", "").strip()
 
-    # Pass 2: hardcoded fallback — strip noise words like "bucket", "project"
-    clean = name_lower.replace("bucket", "").replace("project", "").strip()
-    for key, pid in _KNOWN_PROJECT_IDS.items():
-        if clean == key or clean in key or key in clean:
-            href = f"/api/v3/projects/{pid}"
-            return href, pid, name
-    # Also try original (unstripped) against hardcoded keys
-    for key, pid in _KNOWN_PROJECT_IDS.items():
-        if name_lower == key or name_lower in key or key in name_lower:
-            href = f"/api/v3/projects/{pid}"
-            return href, pid, name
+    # Pass 1 — exact name match
+    for p in combined:
+        if p["name"].lower() == raw or p["name"].lower() == clean:
+            pid = p["id"]
+            return f"/api/v3/projects/{pid}", pid, p["name"]
+
+    # Pass 2 — partial name match (either direction)
+    for p in combined:
+        pname_lower = p["name"].lower()
+        if clean in pname_lower or pname_lower in clean:
+            pid = p["id"]
+            return f"/api/v3/projects/{pid}", pid, p["name"]
+
+    # Pass 3 — keyword alias match in catalog
+    for pid, pname, keywords in _KNOWN_PROJECTS_CATALOG:
+        for kw in keywords:
+            if clean == kw or clean in kw or kw in clean:
+                return f"/api/v3/projects/{pid}", pid, pname
 
     return None
 
