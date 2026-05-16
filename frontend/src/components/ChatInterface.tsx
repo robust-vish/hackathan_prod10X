@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Send, Loader2, CheckCircle2, Circle,
   ExternalLink, Video, Mail, Calendar, AlertCircle,
-  Sparkles, Bot, RotateCcw, ArrowRight,
+  Sparkles, Bot, RotateCcw, ArrowRight, Paperclip, X, FileImage,
 } from 'lucide-react'
 import { analyzeTicket, createTicket } from '../services/api'
 import type { AnalysisResult, CreateTicketResult } from '../types'
@@ -62,10 +62,36 @@ function detectIntent(text: string): { intent: Intent; ticketId?: number } {
 
 // ─── Landing ───────────────────────────────────────────────────────────────────
 
-function LandingScreen({ input, onChange, onSend, loading }: {
+function FileChips({ files, onRemove }: { files: File[]; onRemove: (i: number) => void }) {
+  if (!files.length) return null
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '8px 20px 0' }}>
+      {files.map((f, i) => (
+        <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 8, padding: '3px 8px 3px 6px', fontSize: 12, color: '#4338ca', maxWidth: 200 }}>
+          <FileImage size={12} color="#6366f1" style={{ flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+          <button onClick={() => onRemove(i)} style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginLeft: 2, color: '#818cf8' }}>
+            <X size={11} />
+          </button>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function LandingScreen({ input, onChange, onSend, loading, files, onFilesChange }: {
   input: string; onChange: (v: string) => void; onSend: () => void; loading: boolean
+  files: File[]; onFilesChange: (files: File[]) => void
 }) {
   const [focus, setFocus] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      onFilesChange([...files, ...Array.from(e.target.files)])
+      e.target.value = ''
+    }
+  }
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto"
@@ -116,13 +142,24 @@ function LandingScreen({ input, onChange, onSend, loading }: {
           placeholder='e.g. "Analyse ticket #664712"  or  "Create a High priority bug in Android bucket — tender page blank. Assign to Vishal, accountable Braj Mohan."'
           style={{ resize: 'none', outline: 'none', width: '100%', padding: '20px 20px 12px', fontSize: 14, color: '#111827', background: 'transparent', lineHeight: 1.6, borderRadius: '20px 20px 0 0', display: 'block' }}
         />
+        {/* File chips inside card */}
+        <FileChips files={files} onRemove={i => onFilesChange(files.filter((_, idx) => idx !== i))} />
         {/* Footer row inside card */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '10px 16px 14px', borderTop: '1px solid #f3f4f6',
           background: '#fafafa', borderRadius: '0 0 20px 20px',
+          marginTop: files.length ? 8 : 0,
         }}>
-          <span style={{ fontSize: 12, color: '#9ca3af', fontFamily: 'monospace' }}>@indiamart.com</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, color: '#9ca3af', fontFamily: 'monospace' }}>@indiamart.com</span>
+            <button onClick={() => fileRef.current?.click()} disabled={loading} title="Attach file"
+              style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', borderRadius: 8, color: '#6366f1' }}>
+              <Paperclip size={15} />
+              <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 500 }}>Attach</span>
+            </button>
+            <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.txt,.csv,.zip" style={{ display: 'none' }} onChange={handleFileChange} />
+          </div>
           <button
             onClick={onSend}
             disabled={loading || !input.trim()}
@@ -257,6 +294,14 @@ function CreateCard({ r }: { r: CreateTicketResult }) {
           </span>
         )}
         {emailed && <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#059669', fontWeight: 500 }}><Mail size={12} /> Emails sent</span>}
+        {(() => {
+          const ok = (r.uploaded_files || []).filter(f => !f.startsWith('FAILED:'))
+          const failed = (r.uploaded_files || []).filter(f => f.startsWith('FAILED:'))
+          return (<>
+            {ok.length > 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6366f1', fontWeight: 500 }}><Paperclip size={12} /> {ok.length} file{ok.length > 1 ? 's' : ''} attached</span>}
+            {failed.length > 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#dc2626', fontWeight: 500 }}><AlertCircle size={12} /> {failed.length} upload failed</span>}
+          </>)
+        })()}
       </div>
     </div>
   )
@@ -302,15 +347,17 @@ function MessageBubble({ msg }: { msg: Message }) {
 // ─── Main ──────────────────────────────────────────────────────────────────────
 
 export default function ChatInterface() {
-  const [messages, setMessages]   = useState<Message[]>([])
-  const [input, setInput]         = useState('')
-  const [steps, setSteps]         = useState<StepItem[]>([])
-  const [loading, setLoading]     = useState(false)
-  const [activeIntent, setIntent] = useState<Intent | null>(null)
-  const endRef   = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const idxRef   = useRef(0)
+  const [messages, setMessages]     = useState<Message[]>([])
+  const [input, setInput]           = useState('')
+  const [attachments, setAttachments] = useState<File[]>([])
+  const [steps, setSteps]           = useState<StepItem[]>([])
+  const [loading, setLoading]       = useState(false)
+  const [activeIntent, setIntent]   = useState<Intent | null>(null)
+  const endRef      = useRef<HTMLDivElement>(null)
+  const inputRef    = useRef<HTMLTextAreaElement>(null)
+  const chatFileRef = useRef<HTMLInputElement>(null)
+  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null)
+  const idxRef      = useRef(0)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
@@ -334,15 +381,16 @@ export default function ChatInterface() {
     const text = input.trim(); if (!text || loading) return
     const { intent, ticketId } = detectIntent(text)
     const base = Date.now().toString(), aiId = base + '-ai'
+    const filesToSend = intent === 'create' ? [...attachments] : []
     setMessages(prev => [...prev, { id: base + '-user', role: 'user', content: text }, { id: aiId, role: 'assistant', content: '', intent, loading: true }])
-    setInput(''); setLoading(true); setIntent(intent); startSteps(intent)
+    setInput(''); setAttachments([]); setLoading(true); setIntent(intent); startSteps(intent)
     try {
       if (intent === 'analyze') {
         if (!ticketId) throw new Error('No ticket ID found. Include the number, e.g. "analyse ticket 664712"')
         const result = await analyzeTicket(ticketId)
         finishSteps(); setMessages(prev => prev.map(m => m.id === aiId ? { ...m, loading: false, analysisResult: result } : m))
       } else {
-        const result = await createTicket(text)
+        const result = await createTicket(text, filesToSend.length ? filesToSend : undefined)
         finishSteps(); setMessages(prev => prev.map(m => m.id === aiId ? { ...m, loading: false, createResult: result } : m))
       }
     } catch (err: any) {
@@ -354,7 +402,7 @@ export default function ChatInterface() {
 
   const handleReset = () => {
     if (timerRef.current) clearInterval(timerRef.current)
-    setMessages([]); setSteps([]); setInput(''); setLoading(false); setIntent(null)
+    setMessages([]); setSteps([]); setInput(''); setAttachments([]); setLoading(false); setIntent(null)
   }
 
   const isLanding = messages.length === 0
@@ -363,7 +411,7 @@ export default function ChatInterface() {
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: 'calc(100vh - 56px)' }}>
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
         {isLanding ? (
-          <LandingScreen input={input} onChange={setInput} onSend={handleSend} loading={loading} />
+          <LandingScreen input={input} onChange={setInput} onSend={handleSend} loading={loading} files={attachments} onFilesChange={setAttachments} />
         ) : (
           <>
             {/* Toolbar */}
@@ -385,31 +433,45 @@ export default function ChatInterface() {
 
             {/* Bottom input — bigger and cleaner */}
             <div style={{ flexShrink: 0, background: '#fff', borderTop: '1px solid #f1f5f9', padding: '12px 16px 14px' }}>
-              <div style={{
-                maxWidth: 760, margin: '0 auto',
-                border: '1.5px solid #e2e8f0', borderRadius: 16, background: '#fff',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04)',
-                display: 'flex', alignItems: 'flex-end', gap: 8, padding: '12px 14px 12px 16px',
-              }}>
-                <textarea
-                  ref={inputRef}
-                  rows={2}
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-                  disabled={loading}
-                  placeholder='Type your request — "analyse ticket 664712" or "create a bug in Android..."'
-                  style={{ flex: 1, resize: 'none', outline: 'none', border: 'none', fontSize: 14, color: '#111827', background: 'transparent', lineHeight: 1.6, fontFamily: 'inherit', maxHeight: 140, overflowY: 'auto' }}
-                />
-                <button onClick={handleSend} disabled={loading || !input.trim()}
-                  style={{
-                    width: 40, height: 40, borderRadius: 12, border: 'none', flexShrink: 0,
-                    background: loading || !input.trim() ? '#e2e8f0' : 'linear-gradient(135deg,#6366f1,#4338ca)',
-                    color: loading || !input.trim() ? '#94a3b8' : '#fff',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: loading || !input.trim() ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
-                  }}>
-                  {loading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={15} />}
-                </button>
+              <div style={{ maxWidth: 760, margin: '0 auto' }}>
+                <div style={{
+                  border: '1.5px solid #e2e8f0', borderRadius: 16, background: '#fff',
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04)',
+                }}>
+                  {/* File chips inside chat input box */}
+                  {attachments.length > 0 && (
+                    <div style={{ padding: '10px 14px 0' }}>
+                      <FileChips files={attachments} onRemove={i => setAttachments(attachments.filter((_, idx) => idx !== i))} />
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, padding: '12px 14px 12px 16px' }}>
+                    <textarea
+                      ref={inputRef}
+                      rows={2}
+                      value={input}
+                      onChange={e => setInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                      disabled={loading}
+                      placeholder='Type your request — "analyse ticket 664712" or "create a bug in Android..."'
+                      style={{ flex: 1, resize: 'none', outline: 'none', border: 'none', fontSize: 14, color: '#111827', background: 'transparent', lineHeight: 1.6, fontFamily: 'inherit', maxHeight: 140, overflowY: 'auto' }}
+                    />
+                    <button onClick={() => chatFileRef.current?.click()} disabled={loading} title="Attach file"
+                      style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#6366f1' }}>
+                      <Paperclip size={15} />
+                    </button>
+                    <input ref={chatFileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.txt,.csv,.zip" style={{ display: 'none' }}
+                      onChange={e => { if (e.target.files) { setAttachments(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = '' } }} />
+                    <button onClick={handleSend} disabled={loading || !input.trim()}
+                      style={{
+                        width: 40, height: 40, borderRadius: 12, border: 'none', flexShrink: 0,
+                        background: loading || !input.trim() ? '#e2e8f0' : 'linear-gradient(135deg,#6366f1,#4338ca)',
+                        color: loading || !input.trim() ? '#94a3b8' : '#fff',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: loading || !input.trim() ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
+                      }}>
+                      {loading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={15} />}
+                    </button>
+                  </div>
+                </div>
               </div>
               <p style={{ textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 8 }}>
                 Press <kbd style={{ padding: '1px 5px', borderRadius: 4, border: '1px solid #e2e8f0', background: '#f8fafc', fontFamily: 'monospace', fontSize: 10 }}>Enter</kbd> to send

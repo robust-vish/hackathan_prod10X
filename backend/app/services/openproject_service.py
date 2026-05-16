@@ -1,4 +1,5 @@
 import re
+import json
 import httpx
 import base64
 from typing import Optional
@@ -379,15 +380,15 @@ async def upload_attachment(ticket_id: int, file_content: bytes, filename: str, 
     credentials = base64.b64encode(f"apikey:{settings.openproject_api_key}".encode()).decode()
     headers = {"Authorization": f"Basic {credentials}"}
 
-    files = {"attachment": (filename, file_content, content_type)}
-    metadata = {"fileName": filename, "contentType": content_type}
+    files = {"file": (filename, file_content, content_type)}
+    metadata = json.dumps({"fileName": filename, "contentType": content_type})
 
     async with httpx.AsyncClient(verify=False, timeout=60) as client:
         response = await client.post(
             url,
             headers=headers,
             files=files,
-            data={"metadata": str(metadata)},
+            data={"metadata": metadata},
         )
         response.raise_for_status()
         return response.json()
