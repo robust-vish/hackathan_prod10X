@@ -1,9 +1,45 @@
+import json
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from typing import Optional, List
 from app.services import openproject_service as op
 from app.services import llm_service as llm
 
 router = APIRouter()
+
+
+def _description_to_markdown(description) -> str:
+    """
+    Ensure description is a properly formatted markdown string.
+    If the LLM returned a dict (nested JSON), convert it to markdown.
+    """
+    if isinstance(description, str):
+        # Check if it's a JSON string that should be a dict
+        stripped = description.strip()
+        if stripped.startswith("{"):
+            try:
+                parsed = json.loads(stripped)
+                if isinstance(parsed, dict):
+                    description = parsed
+                else:
+                    return description
+            except (json.JSONDecodeError, ValueError):
+                return description
+        else:
+            return description
+
+    if isinstance(description, dict):
+        lines = []
+        for key, value in description.items():
+            lines.append(f"**{key}**")
+            if isinstance(value, list):
+                for item in value:
+                    lines.append(f"- {item}")
+            else:
+                lines.append(str(value))
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    return str(description)
 
 
 @router.post("/create-ticket")
@@ -113,10 +149,13 @@ async def create_ticket(
             notes.append(f"Could not fetch {project_name} members: {str(e)}")
 
     # Step 7: Create the ticket
+    raw_description = extracted.get("description") or prompt
+    description = _description_to_markdown(raw_description)
+
     try:
         created = await op.create_ticket(
             subject=extracted.get("subject", prompt[:100]),
-            description=extracted.get("description", prompt),
+            description=description,
             project_href=project_href,
             type_href=type_href,
             priority_href=priority_href,
