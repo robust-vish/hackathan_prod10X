@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import {
   PlusCircle, Paperclip, X, CheckCircle, AlertCircle,
-  ExternalLink, Sparkles, Loader, Mail, MessageCircle,
+  ExternalLink, Sparkles, Loader, Mail, MessageCircle, Video, Calendar,
 } from 'lucide-react'
 import type { CreateTicketResult } from '../types'
 import axios from 'axios'
@@ -188,6 +188,40 @@ export default function TicketCreator() {
           {result.notifications?.error && (
             <p className="mt-3 text-xs text-amber-600 bg-amber-50 rounded p-2 border border-amber-100">
               Notification error: {result.notifications.error}
+            </p>
+          )}
+
+          {/* Meeting info */}
+          {result.meeting && !result.meeting.skipped && (
+            <div className="mt-3 bg-blue-50 border border-blue-100 rounded-lg p-3">
+              <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1.5">
+                <Calendar size={13} /> Meeting Scheduled
+              </p>
+              {result.meeting.meeting_time && (
+                <p className="text-xs text-gray-700 mb-1">
+                  <span className="font-medium">Time:</span> {result.meeting.meeting_time}
+                </p>
+              )}
+              {result.meeting.meetLink ? (
+                <a
+                  href={result.meeting.meetLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:underline font-medium"
+                >
+                  <Video size={12} /> Join Google Meet
+                </a>
+              ) : (
+                <p className="text-xs text-gray-500">Calendar invite sent to attendees</p>
+              )}
+              {result.meeting.status === 'error' && (
+                <p className="text-xs text-red-500 mt-1">Meeting error: {result.meeting.message}</p>
+              )}
+            </div>
+          )}
+          {result.meeting?.skipped && (
+            <p className="mt-3 text-xs text-gray-400 bg-gray-50 rounded p-2 border border-gray-100">
+              Meeting skipped: {result.meeting.reason}
             </p>
           )}
 

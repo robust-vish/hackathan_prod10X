@@ -1,9 +1,11 @@
 import json
+import asyncio
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from typing import Optional, List
 from app.services import openproject_service as op
 from app.services import llm_service as llm
 from app.services import notification_service as notify
+from app.services import calendar_service as cal
 from app.config import get_settings
 
 settings = get_settings()
@@ -187,20 +189,44 @@ async def create_ticket(
                 except Exception as err:
                     uploaded_files.append(f"FAILED: {f.filename} — {str(err)}")
 
-    # Step 9: Resolve emails and send Chat + Gmail notifications
+    # Step 9: Resolve both emails in parallel
+    assignee_email = None
+    accountable_email = None
     notification_result = {}
+    meeting_result = {}
+
     if assignee_href or accountable_href:
-        assignee_email = None
-        accountable_email = None
+        async def _resolve_assignee():
+            if assignee_href and assignee_display:
+                e = await op.get_user_email(assignee_href)
+                return e or op.resolve_email(assignee_display, settings.email_domain)
+            return None
 
-        if assignee_href and assignee_display:
-            email = await op.get_user_email(assignee_href)
-            assignee_email = email or op.resolve_email(assignee_display, settings.email_domain)
+        async def _resolve_accountable():
+            if accountable_href and accountable_display:
+                e = await op.get_user_email(accountable_href)
+                return e or op.resolve_email(accountable_display, settings.email_domain)
+            return None
 
-        if accountable_href and accountable_display:
-            email = await op.get_user_email(accountable_href)
-            accountable_email = email or op.resolve_email(accountable_display, settings.email_domain)
+        assignee_email, accountable_email = await asyncio.gather(
+            _resolve_assignee(), _resolve_accountable()
+        )
 
+        # Step 10: Schedule meeting, then send email with meet link (sequential —
+        # email needs the meet link from the calendar result)
+        meeting_result = await cal.schedule_ticket_meeting(
+            ticket_id=ticket_id,
+            ticket_title=extracted.get("subject", "New Ticket"),
+            ticket_url=ticket_url,
+            project=project_name,
+            assignee_email=assignee_email,
+            accountable_email=accountable_email,
+        )
+
+        meet_link = meeting_result.get("meetLink", "")
+        meeting_time = meeting_result.get("meeting_time", "")
+
+        # Step 11: Send Gmail notifications with meet link
         notification_result = await notify.send_ticket_notifications(
             ticket_id=ticket_id,
             ticket_title=extracted.get("subject", "New Ticket"),
@@ -210,6 +236,8 @@ async def create_ticket(
             assignee_name=assignee_display,
             accountable_email=accountable_email,
             accountable_name=accountable_display,
+            meet_link=meet_link,
+            meeting_time=meeting_time,
         )
 
     return {
@@ -225,6 +253,7 @@ async def create_ticket(
         "uploaded_files": uploaded_files,
         "extraction_notes": " | ".join(notes) if notes else "",
         "notifications": notification_result,
+        "meeting": meeting_result,
     }
 
 

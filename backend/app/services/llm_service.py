@@ -9,9 +9,8 @@ PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "llama3-70b-8192",
-    "mixtral-8x7b-32768",
+    "llama-3.1-8b-instant",
+    "compound-beta-mini",
 ]
 GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-flash-latest"]
 CLAUDE_MODELS = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
@@ -63,7 +62,7 @@ def _call_groq(prompt: str) -> str:
                 time.sleep(5)
                 last_error = e
                 continue
-            elif "model_not_found" in err_str.lower() or "404" in err_str:
+            elif any(x in err_str.lower() for x in ["model_not_found", "model_decommissioned", "404", "decommissioned"]):
                 last_error = e
                 continue
             else:

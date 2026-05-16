@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.0-flash"
     groq_api_key: str = ""
     llm_provider: str = "groq"   # claude | groq | gemini
-    apps_script_url: str = ""    # Google Apps Script Web App URL for notifications
+    apps_script_url: str = ""           # Email notification Apps Script URL
+    google_apps_script_url: str = ""    # Calendar / Meet Apps Script URL
     email_domain: str = "indiamart.com"
     port: int = 8000
     host: str = "0.0.0.0"

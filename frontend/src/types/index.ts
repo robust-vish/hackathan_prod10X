@@ -132,6 +132,18 @@ export interface NotificationResult {
   }>
 }
 
+export interface MeetingResult {
+  skipped?: boolean
+  reason?: string
+  status?: string
+  meetLink?: string
+  eventLink?: string
+  meeting_time?: string
+  attendees?: string[]
+  attendeeCount?: number
+  message?: string
+}
+
 export interface CreateTicketResult {
   success: boolean
   ticket_id: number
@@ -145,6 +157,7 @@ export interface CreateTicketResult {
   uploaded_files: string[]
   extraction_notes: string
   notifications?: NotificationResult
+  meeting?: MeetingResult
 }
 
 export type LoadingStep = {

@@ -14,6 +14,8 @@ async def send_ticket_notifications(
     assignee_name: Optional[str] = None,
     accountable_email: Optional[str] = None,
     accountable_name: Optional[str] = None,
+    meet_link: Optional[str] = None,
+    meeting_time: Optional[str] = None,
 ) -> dict:
     """
     Send Google Chat DM + Gmail notifications to assignee and accountable
@@ -38,6 +40,11 @@ async def send_ticket_notifications(
     if accountable_email and accountable_name:
         payload["accountable_email"] = accountable_email
         payload["accountable_name"] = accountable_name
+
+    if meet_link:
+        payload["meet_link"] = meet_link
+    if meeting_time:
+        payload["meeting_time"] = meeting_time
 
     if "assignee_email" not in payload and "accountable_email" not in payload:
         return {"skipped": True, "reason": "No email resolved for either assignee or accountable"}

@@ -14,6 +14,9 @@ function doPost(e) {
     var payload = JSON.parse(e.postData.contents);
     var results = [];
 
+    var meetLink    = payload.meet_link    || '';
+    var meetingTime = payload.meeting_time || '';
+
     if (payload.assignee_email && payload.assignee_name) {
       var r = sendNotification(
         payload.assignee_email,
@@ -22,7 +25,9 @@ function doPost(e) {
         payload.ticket_id,
         payload.ticket_title,
         payload.ticket_url,
-        payload.project
+        payload.project,
+        meetLink,
+        meetingTime
       );
       results.push(r);
     }
@@ -35,7 +40,9 @@ function doPost(e) {
         payload.ticket_id,
         payload.ticket_title,
         payload.ticket_url,
-        payload.project
+        payload.project,
+        meetLink,
+        meetingTime
       );
       results.push(r2);
     }
@@ -51,14 +58,25 @@ function doPost(e) {
   }
 }
 
-// ─── Build and send one notification (Chat DM + Gmail fallback) ───────────────
-function sendNotification(email, name, role, ticketId, title, url, project) {
+// ─── Build and send one notification (Gmail) ─────────────────────────────────
+function sendNotification(email, name, role, ticketId, title, url, project, meetLink, meetingTime) {
   var firstName = name.split(' ')[0];
   var subject, emailBody;
 
   var disclaimer = '\n\n---\n'
-                 + 'Note: This email is automatically triggered from the AI agent for hackathon testing purpose. '
-                 
+                 + 'Note: This email is automatically triggered from the AI agent for hackathon testing purpose.';
+
+  // Meeting section — shown whether or not a Meet link exists
+  var meetingSection;
+  if (meetLink) {
+    meetingSection = '\n\nA meeting has been organised to discuss this ticket.\n'
+                   + 'Time    : ' + (meetingTime || 'Tomorrow, 2:00 PM - 3:00 PM IST') + '\n'
+                   + 'Join    : ' + meetLink;
+  } else {
+    meetingSection = '\n\nA meeting has been organised to discuss this ticket.\n'
+                   + 'Time    : ' + (meetingTime || 'Tomorrow, 2:00 PM - 3:00 PM IST') + '\n'
+                   + '(Calendar invite sent separately)';
+  }
 
   if (role === 'assignee') {
     subject   = 'Ticket assigned to you — #' + ticketId + ': ' + title;
@@ -67,7 +85,8 @@ function sendNotification(email, name, role, ticketId, title, url, project) {
               + 'Title   : ' + title + '\n'
               + 'Project : ' + project + '\n'
               + 'Ticket  : #' + ticketId + '\n'
-              + 'URL     : ' + url + '\n\n'
+              + 'URL     : ' + url
+              + meetingSection + '\n\n'
               + 'Please review and update the ticket status.\n\n'
               + '— OpenProject Bot'
               + disclaimer;
@@ -78,7 +97,8 @@ function sendNotification(email, name, role, ticketId, title, url, project) {
               + 'Title   : ' + title + '\n'
               + 'Project : ' + project + '\n'
               + 'Ticket  : #' + ticketId + '\n'
-              + 'URL     : ' + url + '\n\n'
+              + 'URL     : ' + url
+              + meetingSection + '\n\n'
               + 'Please monitor progress and ensure timely delivery.\n\n'
               + '— OpenProject Bot'
               + disclaimer;
