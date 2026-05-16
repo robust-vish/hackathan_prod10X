@@ -119,6 +119,19 @@ export interface AnalysisResult {
   analysis_mode: 'bug' | 'story'
 }
 
+export interface NotificationResult {
+  skipped?: boolean
+  reason?: string
+  error?: string
+  results?: Array<{
+    role: string
+    email: string
+    name: string
+    sent_chat: boolean
+    sent_email: boolean
+  }>
+}
+
 export interface CreateTicketResult {
   success: boolean
   ticket_id: number
@@ -131,6 +144,7 @@ export interface CreateTicketResult {
   accountable: string | null
   uploaded_files: string[]
   extraction_notes: string
+  notifications?: NotificationResult
 }
 
 export type LoadingStep = {

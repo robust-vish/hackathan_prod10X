@@ -3,6 +3,10 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from typing import Optional, List
 from app.services import openproject_service as op
 from app.services import llm_service as llm
+from app.services import notification_service as notify
+from app.config import get_settings
+
+settings = get_settings()
 
 router = APIRouter()
 
@@ -183,6 +187,31 @@ async def create_ticket(
                 except Exception as err:
                     uploaded_files.append(f"FAILED: {f.filename} — {str(err)}")
 
+    # Step 9: Resolve emails and send Chat + Gmail notifications
+    notification_result = {}
+    if assignee_href or accountable_href:
+        assignee_email = None
+        accountable_email = None
+
+        if assignee_href and assignee_display:
+            email = await op.get_user_email(assignee_href)
+            assignee_email = email or op.resolve_email(assignee_display, settings.email_domain)
+
+        if accountable_href and accountable_display:
+            email = await op.get_user_email(accountable_href)
+            accountable_email = email or op.resolve_email(accountable_display, settings.email_domain)
+
+        notification_result = await notify.send_ticket_notifications(
+            ticket_id=ticket_id,
+            ticket_title=extracted.get("subject", "New Ticket"),
+            ticket_url=ticket_url,
+            project=project_name,
+            assignee_email=assignee_email,
+            assignee_name=assignee_display,
+            accountable_email=accountable_email,
+            accountable_name=accountable_display,
+        )
+
     return {
         "success": True,
         "ticket_id": ticket_id,
@@ -195,6 +224,7 @@ async def create_ticket(
         "accountable": accountable_display,
         "uploaded_files": uploaded_files,
         "extraction_notes": " | ".join(notes) if notes else "",
+        "notifications": notification_result,
     }
 
 

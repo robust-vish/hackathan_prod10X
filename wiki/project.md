@@ -260,3 +260,12 @@ Hackathon/
 - [x] Added: `_KNOWN_PROJECTS_CATALOG` — structured catalog with canonical names + keyword aliases (replaces flat dict)
 - [x] Improved: Bug ticket format — Actual Behavior, Expected Behavior, Steps to Reproduce, Test Environment (matches reference ticket)
 - [x] Added: Claude support in requirements.txt (`anthropic==0.40.0`)
+- [x] Feature 3: Email notification after ticket creation
+  - Apps Script web app (`apps_script/Code.gs`) — sends Gmail to assignee and accountable automatically
+  - People API used to look up user email from Google Workspace directory
+  - `get_user_email()` — fetches email from OpenProject API; falls back to `construct_email()` (display name → firstname.lastname@indiamart.com)
+  - `notification_service.py` — async POST to Apps Script web app URL
+  - Email includes ticket title, project, ticket ID, direct URL, and disclaimer footer
+  - Frontend success card shows email delivery status per person
+  - Note: Google Chat DM attempted but requires Chat App/Bot setup by IT admin (org policy blocked); Gmail works without any admin config
+  - Disclaimer appended to all emails: "This email is automatically triggered from the AI agent for testing purpose"

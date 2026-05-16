@@ -1,3 +1,4 @@
+import re
 import httpx
 import base64
 from typing import Optional
@@ -309,6 +310,68 @@ async def create_ticket(
         response = await client.post(url, headers=_get_headers(), json=payload)
         response.raise_for_status()
         return response.json()
+
+
+async def get_user_email(user_href: str) -> Optional[str]:
+    """
+    Fetch a user's email from OpenProject by their API href.
+    Works if the token has read access to that user profile.
+    Returns None on any error (caller should fall back to construct_email).
+    """
+    try:
+        user_id = user_href.strip("/").split("/")[-1]
+        url = f"{_base_url()}/api/v3/users/{user_id}"
+        async with httpx.AsyncClient(verify=False, timeout=15) as client:
+            response = await client.get(url, headers=_get_headers())
+            if response.status_code == 200:
+                return response.json().get("email")
+    except Exception:
+        pass
+    return None
+
+
+def construct_email(display_name: str, domain: str = "indiamart.com") -> str:
+    """
+    Construct a best-guess email from a display name.
+    'Vishal Bairagi'  → vishal.bairagi@indiamart.com
+    'Soumya Sarkar2'  → soumya.sarkar@indiamart.com  (trailing digits stripped)
+    """
+    if not display_name:
+        return ""
+    # Strip trailing digits (e.g. "Sarkar2" → "Sarkar")
+    clean = re.sub(r"\d+$", "", display_name).strip()
+    parts = clean.lower().split()
+    if len(parts) >= 2:
+        return f"{parts[0]}.{parts[-1]}@{domain}"
+    if len(parts) == 1:
+        return f"{parts[0]}@{domain}"
+    return ""
+
+
+# Hardcoded correct emails for known team members whose emails can't be
+# derived algorithmically (e.g. brajmohan@ has no dot, suraj uses a
+# different surname).  Keys are lowercased display names.
+_KNOWN_EMAILS: dict[str, str] = {
+    "braj mohan":       "brajmohan@indiamart.com",
+    "vishal bairagi":   "vishal.bairagi@indiamart.com",
+    "soumya sarkar2":   "soumya.sarkar2@indiamart.com",
+    "soumya sarkar":    "soumya.sarkar2@indiamart.com",
+    "priyanshu gaurav": "priyanshu.gaurav@indiamart.com",
+    "suraj narayan":    "suraj.singh@indiamart.com",
+}
+
+
+def resolve_email(display_name: str, domain: str = "indiamart.com") -> str:
+    """
+    Resolve email: check known-emails dict first, then construct algorithmically.
+    Use this instead of construct_email() so hardcoded overrides take priority.
+    """
+    if not display_name:
+        return ""
+    key = display_name.strip().lower()
+    if key in _KNOWN_EMAILS:
+        return _KNOWN_EMAILS[key]
+    return construct_email(display_name, domain)
 
 
 async def upload_attachment(ticket_id: int, file_content: bytes, filename: str, content_type: str) -> dict:

@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import {
   PlusCircle, Paperclip, X, CheckCircle, AlertCircle,
-  ExternalLink, Sparkles, Loader,
+  ExternalLink, Sparkles, Loader, Mail, MessageCircle,
 } from 'lucide-react'
 import type { CreateTicketResult } from '../types'
 import axios from 'axios'
@@ -159,6 +159,36 @@ export default function TicketCreator() {
                 </p>
               ))}
             </div>
+          )}
+
+          {/* Notification status */}
+          {result.notifications && !result.notifications.skipped && !result.notifications.error && result.notifications.results && (
+            <div className="mt-3 bg-green-50 border border-green-100 rounded-lg p-3">
+              <p className="text-xs font-semibold text-green-700 mb-2 flex items-center gap-1.5">
+                <MessageCircle size={13} /> Notifications sent
+              </p>
+              {result.notifications.results.map((n, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs text-gray-700 mb-1">
+                  <span className="capitalize font-medium text-gray-800 w-20">{n.role}:</span>
+                  <span className="text-gray-500">{n.name}</span>
+                  <span className="ml-auto flex gap-2">
+                    {n.sent_chat && <span className="flex items-center gap-1 text-blue-600"><MessageCircle size={11} />Chat</span>}
+                    {n.sent_email && <span className="flex items-center gap-1 text-green-600"><Mail size={11} />Gmail</span>}
+                    {!n.sent_chat && !n.sent_email && <span className="text-red-400">Not sent</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {result.notifications?.skipped && (
+            <p className="mt-3 text-xs text-gray-400 bg-gray-50 rounded p-2 border border-gray-100">
+              Notifications skipped: {result.notifications.reason}
+            </p>
+          )}
+          {result.notifications?.error && (
+            <p className="mt-3 text-xs text-amber-600 bg-amber-50 rounded p-2 border border-amber-100">
+              Notification error: {result.notifications.error}
+            </p>
           )}
 
           {result.extraction_notes && (
