@@ -133,22 +133,16 @@ def analyze_story_ticket(ticket_context: str) -> dict:
 def extract_ticket_creation_data(
     user_prompt: str,
     projects: list,
-    users: list,
 ) -> dict:
     """Extract structured ticket data from natural language prompt."""
     projects_list = "\n".join(
-        f"- {p.get('name', '')} (id: {p.get('id', '')})" for p in projects[:50]
-    )
-    users_list = "\n".join(
-        f"- {u.get('firstName', '')} {u.get('lastName', '')} (login: {u.get('login', '')})"
-        for u in users[:100]
+        f"- {p.get('name', '')} (id: {p.get('id', '')})" for p in projects
     )
 
     template = _load_prompt("ticket_creation.txt")
     prompt = template.format(
         user_prompt=user_prompt,
         projects_list=projects_list or "No projects available",
-        users_list=users_list or "No users available",
     )
     result = _call_llm(prompt)
     return extract_json(result)

@@ -66,30 +66,28 @@ Structured JSON rendered as a formatted report in the UI.
 ## Feature 2 — Create a Ticket from Natural Language
 
 ### Input
-Natural language prompt describing the ticket:
-> "Create a bug ticket in Android bucket for tender listing issue. Assign to Vishal. Add Anjali as accountable. Priority High."
+Natural language prompt describing the ticket — mention project/bucket, assignee, and accountable in the text:
+> "Bug in Android bucket: tender page blank screen when navigating from bookmarks. Assign to Vishal Gupta, accountable Rahul Mehta. Priority High."
 
-Optionally: file attachments (screenshots, logs)
+Optionally: file attachments (screenshots, logs), and Type/Priority dropdowns as overrides.
 
 ### Steps
 
-1. **Send prompt to backend**:
-   ```
-   POST http://localhost:8000/api/create-ticket
-   Body: { "prompt": "...", "attachments": [...] }
-   ```
+1. **User writes a natural language prompt** — no dropdowns for project or people
 
-2. **The backend will**:
-   - Use LLM to extract: title, description, project bucket, assignee, accountable, type, priority
-   - Fetch available projects from OpenProject API
-   - Fetch available users from OpenProject API
-   - Fuzzy-match extracted names to actual IDs
-   - Create the ticket via `POST /api/v3/work_packages`
-   - Upload any provided attachments
+2. **Backend calls LLM** with the full prompt and all 178 OpenProject project names:
+   - LLM extracts: `subject`, `description`, `project_name`, `assignee_name`, `accountable_name`, `type`, `priority`
+   - LLM uses explicit keyword rules: e.g. "android bucket" → "Android", "fcp/mdc" → "FCP/MDC"
 
-3. **Return**:
-   - Newly created ticket ID
-   - Direct URL to the ticket
+3. **Backend resolves project**: fuzzy-matches `project_name` against all 178 projects → gets `project_id`
+
+4. **Backend fetches project members** via `/api/v3/memberships?filters=[{"project":...}]`
+
+5. **Backend resolves people**: fuzzy-matches `assignee_name` and `accountable_name` against project members
+
+6. **Creates ticket** via `POST /api/v3/work_packages` with resolved hrefs
+
+7. **Returns**: Ticket ID, direct URL, AI extraction notes (if any ambiguity)
 
 ---
 

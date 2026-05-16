@@ -20,12 +20,11 @@ At IndiaMART, engineering, QA, PM, and product teams manage hundreds of tickets 
 - Typical effort: **1–2 hours per story ticket**
 
 **For Ticket Creation — teams manually:**
-- Open OpenProject, select project bucket, assign users
-- Fill all fields, upload files, structure description
+- Open OpenProject, select project bucket, assign users, fill all fields
 - Typical effort: **15–30 minutes per ticket**
 
 ### Business Impact
-Engineering teams spend **20–30% of their time** on manual ticket management and analysis instead of building features. At scale across 50+ engineers, this is **thousands of hours per month**.
+Engineering teams spend **20–30% of their time** on manual ticket management and analysis instead of building features.
 
 ---
 
@@ -38,14 +37,7 @@ Build an **AI-powered Engineering Productivity Copilot** for OpenProject that:
 3. **Generates** comprehensive analysis instantly:
    - Bug: test cases, RCA, suggested fix, regression checklist
    - Story: A/B hypothesis, metrics, experiment design, expected impact
-4. **Creates** tickets from natural language prompts via AI
-
-### Expected Productivity Impact
-- 70% reduction in manual QA test-case writing effort
-- Faster RCA identification (minutes vs. hours)
-- Faster A/B experiment planning
-- Reduced ticket creation overhead
-- Improved cross-team consistency in ticket quality
+4. **Creates** tickets from natural language prompts + explicit dropdowns
 
 ---
 
@@ -63,15 +55,15 @@ Build an **AI-powered Engineering Productivity Copilot** for OpenProject that:
 │                    BACKEND                          │
 │              Python FastAPI + Uvicorn              │
 │  POST /api/analyze     POST /api/create-ticket     │
-│  GET  /api/projects    GET  /api/users             │
+│  GET  /api/projects    GET  /api/projects/{id}/members │
 └──────────┬──────────────────────┬──────────────────┘
            │                      │
 ┌──────────▼──────────┐  ┌────────▼──────────────────┐
 │   OpenProject API   │  │      AI / LLM Layer        │
-│  project.intermesh  │  │  Google Gemini 1.5 Flash   │
-│  .net/api/v3        │  │     (Free Tier)            │
-│  Basic Auth: apikey │  │  Fallback: Groq Llama      │
-└─────────────────────┘  └───────────────────────────┘
+│  project.intermesh  │  │    Groq — Llama 3.3 70B    │
+│  .net/api/v3        │  │  (Free, works from India)  │
+│  Basic Auth: apikey │  └───────────────────────────┘
+└─────────────────────┘
 ```
 
 ---
@@ -83,9 +75,8 @@ Build an **AI-powered Engineering Productivity Copilot** for OpenProject that:
 | Frontend  | React 18 + TypeScript + Vite        | Fast dev, great ecosystem              |
 | Styling   | Tailwind CSS                        | Rapid UI development                   |
 | Backend   | Python FastAPI                      | Best AI/ML ecosystem                   |
-| AI Model  | Google Gemini 1.5 Flash (Free)      | Vision + text, generous free tier      |
+| AI Model  | Groq — Llama 3.3 70B (Free)         | Gemini free tier blocked in India; Groq works |
 | API Auth  | OpenProject API Token (Basic Auth)  | Secure, headless, reliable             |
-| HTTP      | httpx (Python) / axios (JS)         | Async HTTP clients                     |
 
 ---
 
@@ -95,156 +86,171 @@ Build an **AI-powered Engineering Productivity Copilot** for OpenProject that:
 
 **Input:** OpenProject Ticket ID (numeric)
 
-**Agent Flow:**
+**Flow:**
 ```
 User enters Ticket ID
-        ↓
-Backend calls GET /api/v3/work_packages/{id}
-        ↓
-Fetch activities: GET /api/v3/work_packages/{id}/activities
-Fetch attachments: GET /api/v3/work_packages/{id}/attachments
-        ↓
-Compile full ticket context (title + desc + comments + file names)
-        ↓
-LLM classifies ticket type (Bug / Story / Task)
-        ↓
-Run type-specific analysis prompt
-        ↓
-Parse structured JSON response
-        ↓
-Return formatted analysis to frontend
+  → GET /api/v3/work_packages/{id}  (title, description, type, status)
+  → GET /api/v3/work_packages/{id}/activities  (comments)
+  → GET /api/v3/work_packages/{id}/attachments  (files)
+  → LLM classifies: Bug / Story / Task
+  → Run type-specific analysis prompt
+  → Return structured JSON report
 ```
 
-**Output for Bug:**
-- Bug Summary, Functional Test Cases (5+), Edge Cases
-- Root Cause Analysis (probable cause, impacted modules, data flow)
-- Suggested Fix (approach, code areas, effort estimate, steps)
-- Regression Checklist, Severity Assessment
+**Output for Bug:** Bug summary, 5+ test cases, edge cases, RCA, suggested fix, regression checklist, severity
 
-**Output for Story/UI:**
-- Story Summary, A/B Testing Recommendation
-- Experiment Hypothesis, Variant Design (Control vs Treatment)
-- Metrics (primary, secondary, guardrail)
-- Success Criteria, Risk Analysis, Expected Business Impact
+**Output for Story/UI:** Story summary, A/B hypothesis, variant design, metrics, success criteria, risk analysis
 
 ---
 
 ### Feature 2 — AI Ticket Creation Agent
 
-**Input:** Natural language prompt (+ optional file attachments)
+**Input:** Natural language description (mentioning project/bucket, assignee, accountable) + optional file attachments + Type and Priority dropdowns
 
-**Example prompt:**
-> "Create a bug ticket in Android bucket for tender listing issue. Assign to Vishal. Add Anjali as accountable. Priority High."
-
-**Agent Flow:**
+**Flow:**
 ```
-User types natural language prompt
-        ↓
-LLM extracts: title, description, project bucket, assignee,
-              accountable, type, priority
-        ↓
-Backend fetches available projects & users from OpenProject API
-        ↓
-Fuzzy-match extracted names to actual project/user IDs
-        ↓
-POST /api/v3/work_packages with structured payload
-        ↓
-Return: Ticket ID + Direct URL
+User types full description in prompt, e.g.:
+  "Bug in Android bucket: tender page blank. Assign to Vishal, accountable Rahul. Priority High."
+  → LLM extracts: subject, description, project_name ("Android"), assignee_name ("Vishal"), accountable_name ("Rahul")
+  → Backend fetches all 178 projects, fuzzy-matches "Android" → Project ID 3
+  → Backend fetches Project 3 members via /api/v3/memberships endpoint
+  → Fuzzy-matches "Vishal" and "Rahul" against member list
+  → POST /api/v3/work_packages  (with resolved project/user hrefs)
+  → Return: Ticket ID + direct URL + AI extraction notes
+```
+
+**Why prompt-only (no dropdowns for project/assignee):** The senior reviewer's feedback was that an AI agent should understand context from the prompt — using dropdowns removes the intelligence of the agent. The AI is trained with explicit project-keyword mapping and person-name extraction rules in the prompt template.
+
+---
+
+## 6. Known Issues & Fixes Applied
+
+| Issue | Root Cause | Fix Applied |
+|-------|------------|-------------|
+| Gemini API 404 | `gemini-1.5-flash` deprecated | Switched to `gemini-2.0-flash` |
+| Gemini API 429 quota | Gemini free tier blocked in India (limit=0) | Switched to Groq (Llama 3.3 70B) — free, works in India |
+| `GET /api/v3/users` → 403 | Requires admin token; regular token denied | Switched to `GET /api/v3/projects/{id}/members` |
+| Wrong project selected | LLM guessing from text; 178 projects, partial match ambiguous | Added project dropdown — loads exact names from API |
+| Assignee/Accountable not set | Members fetched from wrong project (cascaded from wrong project) | Dropdowns load members AFTER correct project is selected |
+| `.env` blocked GitHub push | API keys in committed `.env` | Added `.gitignore`, removed `.env` from tracking, rewrote commit history |
+| Only 20 projects loading; Android not found | `get_projects()` incremented `offset` by requested `pageSize=100` but server caps at 20 per page — skipped items 21–100, 121–200, etc. | Fixed: increment `offset += len(elements)` (actual received), not by requested page size |
+| Android still not found after pagination fix | API token may only have membership access to a subset of projects; "Android" falls outside that set | Added `_KNOWN_PROJECT_IDS` hardcoded dict (from Excel export) + `find_project_href()` that tries API first, then fallback — Android, FCP/MDC, iOS, Search etc. always resolve |
+| "No members found" in dropdowns | `/api/v3/projects/{id}/members` is not a valid endpoint on this OpenProject version | Switched to `/api/v3/memberships?filters=[{"project":{"operator":"=","values":["ID"]}}]` — deduped by href |
+
+---
+
+## 7. OpenProject Project List (from exported XLS, 178 total)
+
+Key buckets relevant to IndiaMART engineering:
+
+| ID | Identifier | Name |
+|----|-----------|------|
+| 3 | android | **Android** |
+| 85 | iosnative | IM-iOS Native |
+| 476 | app-webview-lead-manager | APP Webview Lead Manager |
+| 408 | seller | Seller / Trade / Tender |
+| 79 | tender | Tender |
+| 80 | trade | Trade |
+| 47 | searchui | Desktop search UI |
+| 124 | search | Search |
+| 461 | photo-search-im | Photo Search IM |
+| 447 | indiamart-lead-manager | IndiaMART Lead Manager |
+| 54 | fcp | FCP/MDC |
+| 14 | desktopux | Buyer Desktop UX |
+| 55 | proddetail | Product Detail Page |
+| 70 | ide | Desktop Lead Manager |
+
+---
+
+## 8. Setup Instructions
+
+### Step 1 — Get API Keys
+1. **OpenProject API Key**: Login → Profile → Access Tokens → Generate API Token
+2. **Groq API Key (free)**: https://console.groq.com → API Keys → Create
+
+### Step 2 — Configure
+```
+cd backend
+# Edit .env — fill in OPENPROJECT_API_KEY and GROQ_API_KEY
+# Set LLM_PROVIDER=groq
+```
+
+### Step 3 — Run
+```bash
+# Backend
+cd backend && pip install -r requirements.txt && python run.py
+# → http://localhost:8000
+
+# Frontend
+cd frontend && npm install && npm run dev
+# → http://localhost:5173
 ```
 
 ---
 
-## 6. Project Structure
+## 9. Project Structure
 
 ```
 Hackathon/
-├── wiki/
-│   └── project.md              ← This file (continuously updated)
-├── skills/
-│   └── SKILL.md                ← Agent skill definition
+├── wiki/project.md                      ← This file
+├── skills/SKILL.md                      ← Agent skill definition
+├── .gitignore                           ← Excludes .env, node_modules, __pycache__
+├── start.bat                            ← Double-click to launch both servers
 ├── backend/
 │   ├── app/
-│   │   ├── main.py             ← FastAPI app entry
-│   │   ├── config.py           ← Environment config
+│   │   ├── main.py                      ← FastAPI app + CORS
+│   │   ├── config.py                    ← Reads .env settings
 │   │   ├── routes/
-│   │   │   ├── analyze.py      ← Ticket analysis endpoint
-│   │   │   └── create_ticket.py← Ticket creation endpoint
+│   │   │   ├── analyze.py               ← POST /api/analyze
+│   │   │   └── create_ticket.py         ← POST /api/create-ticket, GET /api/projects
 │   │   ├── services/
-│   │   │   ├── openproject_service.py ← OpenProject API calls
-│   │   │   └── llm_service.py        ← Gemini AI integration
+│   │   │   ├── openproject_service.py   ← All OpenProject API calls
+│   │   │   └── llm_service.py           ← Groq/Gemini LLM calls
 │   │   ├── prompts/
-│   │   │   ├── bug_analysis.txt      ← Bug analysis prompt
-│   │   │   ├── story_analysis.txt    ← Story/A/B prompt
-│   │   │   └── ticket_creation.txt   ← Ticket creation prompt
-│   │   └── utils/
-│   │       └── parsers.py            ← Response parsers
+│   │   │   ├── bug_analysis.txt
+│   │   │   ├── story_analysis.txt
+│   │   │   └── ticket_creation.txt
+│   │   └── utils/parsers.py
+│   ├── .env                             ← Local only, not in git
+│   ├── .env.example                     ← Template for new developers
 │   ├── requirements.txt
-│   ├── .env.example
 │   └── run.py
 └── frontend/
-    ├── src/
-    │   ├── App.tsx
-    │   ├── components/
-    │   │   ├── Header.tsx
-    │   │   ├── TicketAnalyzer.tsx
-    │   │   ├── TicketCreator.tsx
-    │   │   ├── BugAnalysisView.tsx
-    │   │   ├── StoryAnalysisView.tsx
-    │   │   └── LoadingSteps.tsx
-    │   ├── services/api.ts
-    │   └── types/index.ts
-    ├── package.json
-    └── vite.config.ts
+    └── src/
+        ├── App.tsx                      ← Tab navigation
+        ├── components/
+        │   ├── Header.tsx
+        │   ├── TicketAnalyzer.tsx        ← Tab 1: analyze by ticket ID
+        │   ├── TicketCreator.tsx         ← Tab 2: create with dropdowns + AI
+        │   ├── BugAnalysisView.tsx       ← Bug analysis result display
+        │   ├── StoryAnalysisView.tsx     ← Story/A/B result display
+        │   └── LoadingSteps.tsx
+        ├── services/api.ts
+        └── types/index.ts
 ```
 
 ---
 
-## 7. Setup Instructions
+## 10. Implementation Status
 
-### Step 1 — Get API Keys
-1. **OpenProject API Key**: Login → Profile (top right) → Access Tokens → Click "Generate" next to API → Copy key
-2. **Gemini API Key**: Visit https://ai.google.dev → Sign in → "Get API key" → Create key (Free)
-
-### Step 2 — Configure Backend
-```bash
-cd backend
-cp .env.example .env
-# Edit .env and fill in your API keys
-```
-
-### Step 3 — Run Backend
-```bash
-cd backend
-pip install -r requirements.txt
-python run.py
-# Server starts at http://localhost:8000
-```
-
-### Step 4 — Run Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-# App opens at http://localhost:5173
-```
-
----
-
-## 8. Implementation Status
-
-- [x] Project structure created
-- [x] wiki/project.md initialized
-- [x] skills/SKILL.md created
+- [x] Project structure + wiki initialized
+- [x] skills/SKILL.md created (proper YAML format)
 - [x] Backend: FastAPI app with CORS
-- [x] Backend: OpenProject service (read tickets, activities, attachments, create)
-- [x] Backend: Gemini LLM service (bug analysis, story analysis, ticket creation)
-- [x] Backend: Analysis routes
-- [x] Backend: Create ticket route
-- [x] Backend: Structured prompts for all ticket types
-- [x] Frontend: React + TypeScript + Vite + Tailwind setup
-- [x] Frontend: Tab-based dashboard
-- [x] Frontend: Ticket Analyzer component
-- [x] Frontend: Ticket Creator component
-- [x] Frontend: Bug analysis display
-- [x] Frontend: Story/A/B analysis display
-- [x] Frontend: Loading animation with steps
+- [x] Backend: OpenProject service (read tickets, activities, attachments, create, get project members)
+- [x] Backend: Groq LLM service (with 4-model fallback chain)
+- [x] Backend: Bug analysis route + prompts
+- [x] Backend: Story/A/B analysis route + prompts
+- [x] Backend: Ticket creation route (uses project_id + user hrefs directly)
+- [x] Frontend: React + TypeScript + Vite + Tailwind
+- [x] Frontend: Tab 1 — Ticket Analyzer with loading steps
+- [x] Frontend: Tab 2 — Ticket Creator with project/member dropdowns
+- [x] Frontend: Bug analysis display (collapsible sections)
+- [x] Frontend: Story/A/B display (metrics, variants side-by-side)
+- [x] GitHub repo: https://github.com/robust-vish/hackathan_prod10X
+- [x] Fix: Groq as primary LLM (Gemini blocked in India)
+- [x] Fix: Project members API instead of global users (403 fix)
+- [x] Fix: `get_projects()` pagination — fetches all 178 projects (was capped at 20)
+- [x] Fix: `get_project_members()` — switched to `/api/v3/memberships` endpoint (was using non-existent `/projects/{id}/members`)
+- [x] Redesign: Removed project/assignee/accountable dropdowns — AI agent now extracts all from natural language prompt
+- [x] Improved: `ticket_creation.txt` prompt with explicit bucket keyword mapping + person name extraction rules
+- [x] Cleaned: `extract_ticket_creation_data()` now passes all 178 projects to LLM (removed 50-item limit)
