@@ -70,25 +70,40 @@ For TYPE = Bug, format the description EXACTLY like this (use **bold** for secti
 3. Operating System: [OS version if mentioned, else skip this line]
 4. Browser/Version: [if mentioned, else skip]
 
-For TYPE = Story / Feature, format as:
+For TYPE = Story / Feature, format EXACTLY like this:
 
-**Background**
-[Why this is needed — business context]
+**Business Problem**
+[Describe the current gap or pain point. What is missing or broken from the business/user perspective? 2-4 sentences.]
 
-**Goal**
-[What we want to achieve]
+**Business Requirement**
+[What needs to be built or changed. Use bullet points if multiple requirements:]
+- [Requirement 1]
+- [Requirement 2]
+- [Continue as needed]
+
+**Trackings Required**
+[If tracking/analytics links or sheets are mentioned in the prompt, include them here. Otherwise write: "QA and DB trackings to be defined."]
+
+**Target Audience**
+[Who will be affected — e.g. "All Paid and Free sellers", "Buyer users on Android", "Premium sellers". Infer from context.]
+
+**Expected Impact**
+- [Business or UX benefit 1]
+- [Business or UX benefit 2]
 
 **Acceptance Criteria**
-1. [Criterion 1]
-2. [Criterion 2]
+- [Criterion 1 — specific, testable]
+- [Criterion 2]
+- [Continue as needed]
 
 For TYPE = Task, write a clear paragraph description with steps if applicable.
 
 === TYPE DETECTION ===
-"bug" / "crash" / "not working" / "blank screen" / "error" / "broken" / "fails" / "wrong redirect"  → Bug
-"implement" / "add" / "story" / "feature" / "ui change" / "banner" / "experiment" / "a/b"           → Story
-"performance" / "optimize" / "slow" / "speed"                                                        → Task or Story
-"setup" / "configure" / "deploy" / "migrate" / "task" / "chore"                                    → Task
+"bug" / "crash" / "not working" / "blank screen" / "error" / "broken" / "fails" / "wrong redirect" / "issue" → Bug
+"story" / "implement" / "add feature" / "introduce" / "ui change" / "banner" / "filter" / "experiment" / "a/b" / "need to implement" / "business requirement" / "business problem" → Story
+"performance" / "optimize" / "slow" / "speed up"  → Task or Story (use Story if it has user-facing impact)
+"setup" / "configure" / "deploy" / "migrate" / "task" / "chore"  → Task
+If the user explicitly says "create a story" or "story ticket" → always Story regardless of other keywords
 default → Task
 
 === PRIORITY DETECTION ===
